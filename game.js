@@ -7,6 +7,7 @@ const ORIGIN_Y = 120;
 
 const FLOOR_BASE = "#7a8087";
 const FLOOR_PAINTED = "#34b44a";
+const FLOOR_ANTAGONIST = "#c9252d";
 const FLOOR_BLOCKED = "#60666f";
 const OUTLINE_COLOR = "rgba(0, 0, 0, 0.35)";
 
@@ -29,8 +30,10 @@ const furniture = new Set([
   "9,7",
 ]);
 
-const painted = new Set();
+const greenPainted = new Set();
+const redPainted = new Set();
 let player = { x: 1, y: 1 };
+let antagonist = { x: GRID_SIZE - 1, y: 0 };
 let won = false;
 
 const canvas = document.getElementById("game");
@@ -180,6 +183,65 @@ function drawPlayer() {
   ctx.stroke();
 }
 
+function drawAntagonist() {
+  const pos = isoToScreen(antagonist.x, antagonist.y);
+  const px = pos.x;
+  const py = pos.y - FLOOR_Z - 26;
+
+  // Bright marker so the rival pops visually.
+  ctx.strokeStyle = "#ffd6d6";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(px, py + 29, 17, 10, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.fillStyle = "#2b1315";
+  ctx.beginPath();
+  ctx.ellipse(px, py + 27, 14, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Red flannel body and sleeves.
+  ctx.fillStyle = "#8f1d21";
+  ctx.fillRect(px - 12, py + 3, 24, 20);
+  ctx.fillRect(px - 17, py + 7, 5, 14);
+  ctx.fillRect(px + 12, py + 7, 5, 14);
+
+  ctx.strokeStyle = "#d8a4a4";
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(px - 9, py + 9);
+  ctx.lineTo(px + 9, py + 9);
+  ctx.moveTo(px - 9, py + 16);
+  ctx.lineTo(px + 9, py + 16);
+  ctx.moveTo(px - 4, py + 3);
+  ctx.lineTo(px - 4, py + 23);
+  ctx.moveTo(px + 4, py + 3);
+  ctx.lineTo(px + 4, py + 23);
+  ctx.stroke();
+
+  ctx.fillStyle = "#efb592";
+  ctx.beginPath();
+  ctx.arc(px, py - 1, 10, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Red hair and beard.
+  ctx.fillStyle = "#b71d16";
+  ctx.beginPath();
+  ctx.arc(px, py - 10, 8, Math.PI, Math.PI * 2);
+  ctx.fill();
+  ctx.fillRect(px - 7, py - 10, 3, 5);
+  ctx.fillRect(px + 4, py - 10, 3, 5);
+  ctx.beginPath();
+  ctx.arc(px, py + 3, 6, 0, Math.PI, false);
+  ctx.fill();
+
+  ctx.fillStyle = "#24181a";
+  ctx.beginPath();
+  ctx.arc(px - 3, py - 2, 1.2, 0, Math.PI * 2);
+  ctx.arc(px + 3, py - 2, 1.2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 function drawBoard() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -191,7 +253,9 @@ function drawBoard() {
 
       if (isBlocked(x, y)) {
         topColor = FLOOR_BLOCKED;
-      } else if (painted.has(tileKey)) {
+      } else if (redPainted.has(tileKey)) {
+        topColor = FLOOR_ANTAGONIST;
+      } else if (greenPainted.has(tileKey)) {
         topColor = FLOOR_PAINTED;
       }
 
@@ -206,6 +270,9 @@ function drawBoard() {
       if (isBlocked(x, y)) {
         drawFurniture(x, y);
       }
+      if (antagonist.x === x && antagonist.y === y) {
+        drawAntagonist();
+      }
       if (player.x === x && player.y === y) {
         drawPlayer();
       }
@@ -214,18 +281,58 @@ function drawBoard() {
 }
 
 function updateStatus(message = "") {
-  const paintedCount = painted.size;
+  const paintedCount = greenPainted.size;
+  const redCount = redPainted.size;
   const left = totalPaintable - paintedCount;
   statusEl.textContent =
-    message || `Painted: ${paintedCount}/${totalPaintable}. Unpainted tiles left: ${left}.`;
+    message ||
+    `Green tiles: ${paintedCount}/${totalPaintable}. Red sabotage: ${redCount}. Unpainted left: ${left}.`;
 }
 
 function checkWin() {
   const playerKey = key(player.x, player.y);
-  if (!painted.has(playerKey) && painted.size === totalPaintable - 1) {
+  if (!greenPainted.has(playerKey) && greenPainted.size === totalPaintable - 1) {
     won = true;
     updateStatus("You painted yourself into a corner. Victory.");
   }
+}
+
+function pickRandomTile(tiles) {
+  if (tiles.length === 0) return null;
+  return tiles[Math.floor(Math.random() * tiles.length)];
+}
+
+function antagonistTurn() {
+  if (won) return;
+
+  const sabotageCandidates = [...greenPainted].filter(
+    (tileKey) => tileKey !== key(antagonist.x, antagonist.y)
+  );
+  let targetKey = pickRandomTile(sabotageCandidates);
+
+  if (!targetKey) {
+    const fallback = [];
+    for (let y = 0; y < GRID_SIZE; y += 1) {
+      for (let x = 0; x < GRID_SIZE; x += 1) {
+        const tileKey = key(x, y);
+        if (isBlocked(x, y)) continue;
+        if (tileKey === key(player.x, player.y)) continue;
+        if (tileKey === key(antagonist.x, antagonist.y)) continue;
+        if (redPainted.has(tileKey)) continue;
+        fallback.push(tileKey);
+      }
+    }
+    targetKey = pickRandomTile(fallback);
+  }
+
+  if (!targetKey) {
+    updateStatus("The Nova Scotian fella glares, but finds nothing left to ruin.");
+    return;
+  }
+
+  greenPainted.delete(targetKey);
+  redPainted.add(targetKey);
+  updateStatus("The Nova Scotian antagonist repaints a tile red.");
 }
 
 function tryMove(dx, dy) {
@@ -243,7 +350,9 @@ function tryMove(dx, dy) {
   }
 
   player = { x: nx, y: ny };
+  redPainted.delete(key(player.x, player.y));
   checkWin();
+  if (!won) antagonistTurn();
   if (!won) updateStatus();
 }
 
@@ -251,21 +360,25 @@ function paintHere() {
   if (won) return;
   const tileKey = key(player.x, player.y);
 
-  if (painted.has(tileKey)) {
+  if (greenPainted.has(tileKey)) {
     updateStatus("That tile is already painted.");
     return;
   }
 
-  painted.add(tileKey);
+  redPainted.delete(tileKey);
+  greenPainted.add(tileKey);
   checkWin();
+  if (!won) antagonistTurn();
   if (!won) updateStatus();
 }
 
 function resetGame() {
-  painted.clear();
+  greenPainted.clear();
+  redPainted.clear();
   player = { x: 1, y: 1 };
+  antagonist = { x: GRID_SIZE - 1, y: 0 };
   won = false;
-  updateStatus("Fresh coat of nothing. Start painting.");
+  updateStatus("Fresh coat of nothing. Start painting before the red menace ruins it.");
 }
 
 window.addEventListener("keydown", (event) => {
