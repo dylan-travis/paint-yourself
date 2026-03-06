@@ -209,14 +209,26 @@ function drawAntagonist() {
   ctx.strokeStyle = "#d8a4a4";
   ctx.lineWidth = 1.2;
   ctx.beginPath();
+  ctx.moveTo(px - 9, py + 6);
+  ctx.lineTo(px + 9, py + 6);
   ctx.moveTo(px - 9, py + 9);
   ctx.lineTo(px + 9, py + 9);
+  ctx.moveTo(px - 9, py + 12.5);
+  ctx.lineTo(px + 9, py + 12.5);
   ctx.moveTo(px - 9, py + 16);
   ctx.lineTo(px + 9, py + 16);
+  ctx.moveTo(px - 9, py + 19.5);
+  ctx.lineTo(px + 9, py + 19.5);
+  ctx.moveTo(px - 8, py + 3);
+  ctx.lineTo(px - 8, py + 23);
   ctx.moveTo(px - 4, py + 3);
   ctx.lineTo(px - 4, py + 23);
+  ctx.moveTo(px, py + 3);
+  ctx.lineTo(px, py + 23);
   ctx.moveTo(px + 4, py + 3);
   ctx.lineTo(px + 4, py + 23);
+  ctx.moveTo(px + 8, py + 3);
+  ctx.lineTo(px + 8, py + 23);
   ctx.stroke();
 
   ctx.fillStyle = "#efb592";
@@ -226,13 +238,25 @@ function drawAntagonist() {
 
   // Red hair and beard.
   ctx.fillStyle = "#b71d16";
+  // Hair mass wraps around the whole head.
   ctx.beginPath();
-  ctx.arc(px, py - 10, 8, Math.PI, Math.PI * 2);
+  ctx.arc(px, py - 1, 12.5, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillRect(px - 7, py - 10, 3, 5);
-  ctx.fillRect(px + 4, py - 10, 3, 5);
+  ctx.fillRect(px - 11, py - 5, 3.5, 11);
+  ctx.fillRect(px + 7.5, py - 5, 3.5, 11);
+
+  // Redraw face over center so hair reads as a wrap-around ring.
+  ctx.fillStyle = "#efb592";
   ctx.beginPath();
-  ctx.arc(px, py + 3, 6, 0, Math.PI, false);
+  ctx.arc(px, py - 1, 10, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#b71d16";
+  ctx.beginPath();
+  ctx.ellipse(px, py + 4, 8, 6, 0, 0, Math.PI, false);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(px, py + 6.2, 6.4, 3.4, 0, 0, Math.PI, false);
   ctx.fill();
 
   ctx.fillStyle = "#24181a";
@@ -302,37 +326,64 @@ function pickRandomTile(tiles) {
   return tiles[Math.floor(Math.random() * tiles.length)];
 }
 
+function getAntagonistMoves() {
+  const deltas = [
+    { dx: 1, dy: 0 },
+    { dx: -1, dy: 0 },
+    { dx: 0, dy: 1 },
+    { dx: 0, dy: -1 },
+  ];
+
+  return deltas
+    .map(({ dx, dy }) => ({ x: antagonist.x + dx, y: antagonist.y + dy }))
+    .filter((pos) => inBounds(pos.x, pos.y))
+    .filter((pos) => !isBlocked(pos.x, pos.y))
+    .filter((pos) => !(pos.x === player.x && pos.y === player.y));
+}
+
+function scoreAntagonistMove(pos) {
+  const tileKey = key(pos.x, pos.y);
+  const distanceToPlayer = Math.abs(pos.x - player.x) + Math.abs(pos.y - player.y);
+
+  // Prefer stepping onto green tiles to undo progress, then unpainted tiles.
+  let score = 0;
+  if (greenPainted.has(tileKey)) score += 100;
+  else if (!redPainted.has(tileKey)) score += 20;
+
+  // Lightly bias movement toward the player to keep pressure up.
+  score += Math.max(0, 12 - distanceToPlayer);
+  return score;
+}
+
 function antagonistTurn() {
   if (won) return;
 
-  const sabotageCandidates = [...greenPainted].filter(
-    (tileKey) => tileKey !== key(antagonist.x, antagonist.y)
-  );
-  let targetKey = pickRandomTile(sabotageCandidates);
-
-  if (!targetKey) {
-    const fallback = [];
-    for (let y = 0; y < GRID_SIZE; y += 1) {
-      for (let x = 0; x < GRID_SIZE; x += 1) {
-        const tileKey = key(x, y);
-        if (isBlocked(x, y)) continue;
-        if (tileKey === key(player.x, player.y)) continue;
-        if (tileKey === key(antagonist.x, antagonist.y)) continue;
-        if (redPainted.has(tileKey)) continue;
-        fallback.push(tileKey);
-      }
-    }
-    targetKey = pickRandomTile(fallback);
-  }
-
-  if (!targetKey) {
-    updateStatus("The Nova Scotian fella glares, but finds nothing left to ruin.");
+  const moves = getAntagonistMoves();
+  if (moves.length === 0) {
+    updateStatus("The Nova Scotian fella is boxed in and can't move this turn.");
     return;
   }
 
+  let bestScore = -Infinity;
+  const bestMoves = [];
+  for (const move of moves) {
+    const moveScore = scoreAntagonistMove(move);
+    if (moveScore > bestScore) {
+      bestScore = moveScore;
+      bestMoves.length = 0;
+      bestMoves.push(move);
+    } else if (moveScore === bestScore) {
+      bestMoves.push(move);
+    }
+  }
+
+  const nextMove = bestMoves[Math.floor(Math.random() * bestMoves.length)];
+  antagonist = { x: nextMove.x, y: nextMove.y };
+
+  const targetKey = key(antagonist.x, antagonist.y);
   greenPainted.delete(targetKey);
   redPainted.add(targetKey);
-  updateStatus("The Nova Scotian antagonist repaints a tile red.");
+  updateStatus("The Nova Scotian antagonist moves and paints his new tile red.");
 }
 
 function tryMove(dx, dy) {
